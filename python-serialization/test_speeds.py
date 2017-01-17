@@ -21,7 +21,7 @@ import msgpack
 
 from thrift.transport.TTransport import TMemoryBuffer
 from thrift.protocol.TBinaryProtocol import TBinaryProtocolAccelerated, TBinaryProtocol
-
+"""
 try:
     from thriftobj.Tweet.ttypes import Tweet as ThriftTweet
 except ImportError:
@@ -29,29 +29,33 @@ except ImportError:
     os.system("thrift --gen py Tweet.thrift")
     os.system("mv gen-py thriftobj")
     from thriftobj.Tweet.ttypes import Tweet as ThriftTweet
-
+"""
 class Tweet(object):
-    def __init__(self, text=None, userId=None, timestamp=None, location=None):
+    def __init__(self, text=None, userId=None, timestamp=None, location=None, children = None):
         self.text = text
         self.userId = userId
         self.timestamp = timestamp
         self.location = location
+        self.children = children
+
+    def serialize(self, obj):
+       return obj.__dict__ 
 
     def toJSON(self):
-        return json.dumps(self.__dict__)
+        return json.dumps(self, default=self.serialize)
 
     @classmethod
     def fromJSON(cls, data):
         return cls(**json.loads(data))
 
     def toMessagePack(self):
-        return msgpack.packb(self.__dict__)
+        return msgpack.packb(self, default=self.serialize)
 
     @classmethod
     def fromMessagePack(cls, data):
         return cls(**msgpack.unpackb(data))
 
-
+"""
 def thriftDumps(tweet, ProtocolClass=TBinaryProtocolAccelerated):
     buf = TMemoryBuffer()
     protocol = ProtocolClass(buf)
@@ -64,20 +68,42 @@ def thriftLoads(data, ProtocolClass=TBinaryProtocolAccelerated):
     protocol = ProtocolClass(buf)
     ret.read(protocol)
     return ret
-
+"""
 alphabet = map(chr, range(ord('a'), ord('z') + 1))
 def randomString(length):
     return ''.join(random.choice(alphabet) for _ in xrange(length))
 
-def runTests():
-    print "generating data"
-    data = [Tweet(randomString(random.randint(10,140)),
+def get_random_tweet(x):
+    rec_max = (x/2) + 1
+    rec_limit = int(0.6*rec_max)
+    i = random.randint(0, rec_max)
+    return Tweet(randomString(random.randint(10, 1100)),
                     randomString(random.randint(5, 20)),
                     int(time.time()),
-                    randomString(random.randint(10, 30)))
-                for x in xrange(100000)]
+                    randomString(random.randint(10, 30)),
+                    get_random_tweet(rec_max) if i > rec_limit else None 
+                    )
 
-    thriftdata = [ThriftTweet(d.text, d.userId, d.timestamp, d.location) for d in data]
+def get_random_tweet_list():
+    data = [Tweet(randomString(random.randint(10, 1100)),
+                    randomString(random.randint(5, 20)),
+                    int(time.time()),
+                    randomString(random.randint(10, 30)),
+                    get_random_tweet(x)
+                    )
+                for x in xrange(100)]
+    return data
+
+def runTests():
+    print "generating data"
+    data = [Tweet(randomString(random.randint(10, 1100000)),
+                    randomString(random.randint(5, 20)),
+                    int(time.time()),
+                    randomString(random.randint(10, 30)),
+                    get_random_tweet(x))
+                for x in xrange(1000)]
+
+    ## thriftdata = [ThriftTweet(d.text, d.userId, d.timestamp, d.location) for d in data]
 
     minSize = numpy.average([len(d.text) + len(d.userId) + len(d.location) + 8 for d in data])
     print "generated data, size lower bound = ", minSize
@@ -92,7 +118,7 @@ def runTests():
                'JSON' : (lambda d: d.toJSON(), Tweet.fromJSON, data),
                'MessagePack' : (lambda d: d.toMessagePack(),
                                 Tweet.fromMessagePack, data),
-               'Thrift' : (thriftDumps, thriftLoads, thriftdata),
+      #         'Thrift' : (thriftDumps, thriftLoads, thriftdata),
                }
 
     output = []
@@ -120,7 +146,6 @@ def runTests():
         print "packTime", packTime, "s - ", len(inputData)/packTime, "items/s"
         print "unpackTime", unpackTime, "s - ", len(inputData)/unpackTime, "items/s"
         print "size", averageSize
-        print
         print
 
     output.sort(key=lambda x: x['packRate'])
